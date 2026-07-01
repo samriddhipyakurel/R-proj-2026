@@ -140,30 +140,52 @@ priceRange.addEventListener('input', () => {
 });
 
 // ── Prediction ──
-function runPrediction() {
+async function runPrediction() {
   const btn = document.getElementById('btn-predict');
   const results = document.getElementById('results-panel');
 
   btn.classList.add('loading');
   results.classList.remove('visible');
 
-  // Simulate AI processing
-  setTimeout(() => {
-    btn.classList.remove('loading');
+  // Gather data from the UI to send to our R Backend
+  const payload = {
+    price_usd: document.getElementById('price-range').value,
+    brand: document.getElementById('brand-pref').value || "Other",
+    individual_category: document.getElementById('selected-product-name').textContent,
+    // Extract "Women" or "Men" based on the selected category card
+    gender: document.getElementById('selected-product-category').textContent.includes("Female") ? "Women" : "Men",
+    source_market: "US"
+  };
 
-    // Generate randomised results
-    const confidence = Math.floor(Math.random() * 25) + 72; // 72-97
-    const demand = Math.floor(Math.random() * 20) + 78;     // 78-98
+  try {
+    // Make an HTTP POST request to the Plumber API running locally on port 8000
+    const response = await fetch('http://127.0.0.1:8000/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
 
-    document.getElementById('res-confidence').innerHTML = `${confidence}<span class="unit">%</span>`;
-    document.getElementById('prog-confidence').style.width = confidence + '%';
+    if (!response.ok) throw new Error('Failed to fetch from API');
+    
+    // Parse the JSON response from R
+    const data = await response.json();
+    
+    // R Plumber usually returns single values as an array, e.g., [0.85]
+    const isTrending = data.prediction[0] === 1;
+    const confidenceScore = Math.round(data.confidence[0] * 100);
 
+    // Update the UI with the REAL confidence score from the Random Forest!
+    document.getElementById('res-confidence').innerHTML = `${confidenceScore}<span class="unit">%</span>`;
+    document.getElementById('prog-confidence').style.width = confidenceScore + '%';
+
+    // (Demand score is still calculated visually for effect)
+    const demand = isTrending ? Math.floor(Math.random() * 10) + 88 : Math.floor(Math.random() * 20) + 40;
     document.getElementById('res-demand').innerHTML = `${demand}<span class="unit">/100</span>`;
     document.getElementById('prog-demand').style.width = demand + '%';
 
-    // Trend direction
+    // Update Trend direction based on the true prediction
     const dir = document.getElementById('trend-direction');
-    if (confidence > 85) {
+    if (isTrending || confidenceScore > 50) {
       dir.textContent = '↑ Trending Up';
       dir.className = 'trend-indicator trend-up';
       document.getElementById('res-popularity').textContent = 'Rising';
@@ -173,7 +195,7 @@ function runPrediction() {
       document.getElementById('res-popularity').textContent = 'Stable';
     }
 
-    // Mini chart
+    // Mini chart (visual flair)
     const chart = document.getElementById('mini-chart');
     chart.innerHTML = '';
     const colors = ['var(--pink-200)', 'var(--pink-300)', 'var(--sage-200)', 'var(--pink-400)', 'var(--sage-300)', 'var(--pink-300)', 'var(--sage-400)', 'var(--pink-500)'];
@@ -187,7 +209,7 @@ function runPrediction() {
       chart.appendChild(bar);
     }
 
-    // Audience
+    // Audience (visual flair)
     const audiences = [
       { label: 'Gen Z & Millennials', tags: ['Ages 18-34', 'Streetwear Lovers', 'Trend Setters', 'Social Media Active'] },
       { label: 'Fashion Enthusiasts', tags: ['Ages 20-40', 'Style Conscious', 'Brand Loyal', 'Early Adopters'] },
@@ -204,7 +226,8 @@ function runPrediction() {
       tagsEl.appendChild(span);
     });
 
-    // Show results with animation
+    // Show results
+    btn.classList.remove('loading');
     results.classList.add('visible');
     results.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
@@ -216,5 +239,9 @@ function runPrediction() {
       document.getElementById('prog-demand').style.animation = '';
     });
 
-  }, 1800);
+  } catch (error) {
+    console.error('API Error:', error);
+    btn.classList.remove('loading');
+    alert("Could not connect to the R backend. Please make sure you have saved your model and started the api.R script in RStudio!");
+  }
 }
